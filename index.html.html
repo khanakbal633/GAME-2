@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mystic Dragon Flight</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0a0e17;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+            width: 400px;
+            height: 600px;
+            overflow: hidden;
+            border-radius: 15px;
+            box-shadow: 0 0 30px rgba(138, 43, 226, 0.5);
+            border: 3px solid #6a3093;
+        }
+        canvas {
+            display: block;
+        }
+        #uiOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        #scoreDisplay {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 36px;
+            color: #fff;
+            text-shadow: 0 0 10px #ff00ff, 
+                         0 0 20px #00ffff;
+            font-weight: bold;
+        }
+        #gameOverScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            pointer-events: all;
+        }
+        #gameOverText {
+            font-size: 48px;
+            color: #ff5555;
+            text-shadow: 0 0 10px #ff0000;
+            margin-bottom: 20px;
+        }
+        #restartButton {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #6a3093, #a044ff);
+            border: none;
+            border-radius: 25px;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            pointer-events: all;
+            box-shadow: 0 0 15px rgba(160, 68, 255, 0.7);
+            transition: all 0.3s;
+        }
+        #restartButton:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(160, 68, 255, 0.9);
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="uiOverlay">
+            <div id="scoreDisplay">0</div>
+            <div id="gameOverScreen">
+                <div id="gameOverText">Game Over</div>
+                <button id="restartButton">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const gameOverText = document.getElementById('gameOverText');
+        const restartButton = document.getElementById('restartButton');
+        
+        // Set canvas size
+        canvas.width = 400;
+        canvas.height = 600;
+        
+        // Game variables
+        const game = {
+            dragon: {
+                x: 100,
+                y: 300,
+                width: 40,
+                height: 30,
+                velocity: 0,
+                gravity: 0.5,
+                jump: -10,
+                color: '#ff5555',
+                flameColor: '#ffaa00',
+                wingAngle: 0,
+                wingDirection: 1
+            },
+            pipes: [],
+            background: {
+                stars: [],
+                clouds: []
+            },
+            score: 0,
+            bestScore: 0,
+            gameOver: false,
+            frameCount: 0,
+            pipeGap: 180,
+            pipeWidth: 70,
+            pipeFrequency: 120,
+            scrollSpeed: 2,
+            backgroundOffset: 0
+        };
+        
+        // Initialize stars for background
+        for (let i = 0; i < 100; i++) {
+            game.background.stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2 + 1,
+                brightness: Math.random() * 0.5 + 0.5
+            });
+        }
+        
+        // Initialize clouds for background
+        for (let i = 0; i < 8; i++) {
+            game.background.clouds.push({
+                x: Math.random() * canvas.width * 2,
+                y: Math.random() * canvas.height * 0.6,
+                width: Math.random() * 100 + 50,
+                height: Math.random() * 30 + 20,
+                speed: Math.random() * 0.5 + 0.5
+            });
+        }
+        
+        // Event listeners
+        canvas.addEventListener('click', () => {
+            if (game.gameOver) return;
+            game.dragon.velocity = game.dragon.jump;
+            game.dragon.wingAngle = 20 * game.dragon.wingDirection;
+            game.dragon.wingDirection *= -1;
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                if (game.gameOver) return;
+                game.dragon.velocity = game.dragon.jump;
+                game.dragon.wingAngle = 20 * game.dragon.wingDirection;
+                game.dragon.wingDirection *= -1;
+                e.preventDefault();
+            }
+        });
+        
+        restartButton.addEventListener('click', resetGame);
+        
+        // Game functions
+        function resetGame() {
+            game.dragon.y = canvas.height / 2;
+            game.dragon.velocity = 0;
+            game.dragon.wingAngle = 0;
+            game.pipes = [];
+            game.score = 0;
+            scoreDisplay.textContent = '0';
+            game.gameOver = false;
+            game.frameCount = 0;
+            gameOverScreen.style.display = 'none';
+        }
+        
+        function createPipe() {
+            const minHeight = 80;
+            const maxHeight = canvas.height - game.pipeGap - minHeight - 100;
+            const topHeight = Math.floor(Math.random() * (maxHeight - minHeight)) + minHeight;
+            
+            game.pipes.push({
+                x: canvas.width,
+                topHeight: topHeight,
+                bottomY: topHeight + game.pipeGap,
+                passed: false,
+                color: `hsl(${Math.random() * 60 + 150}, 70%, 40%)`,
+                highlight: `hsl(${Math.random() * 60 + 150}, 70%, 50%)`
+            });
+        }
+        
+        function drawDragon() {
+            ctx.save();
+            ctx.translate(game.dragon.x, game.dragon.y);
+            
+            // Body
+            ctx.fillStyle = game.dragon.color;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, game.dragon.width / 2, game.dragon.height / 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Wings
+            ctx.save();
+            ctx.rotate(game.dragon.wingAngle * Math.PI / 180);
+            ctx.fillStyle = `${game.dragon.color}80`;
+            ctx.beginPath();
+            ctx.moveTo(-game.dragon.width * 0.6, 0);
+            ctx.lineTo(-game.dragon.width * 1.5, -game.dragon.height);
+            ctx.lineTo(-game.dragon.width * 0.8, game.dragon.height * 0.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+            
+            // Flame when falling fast
+            if (game.dragon.velocity > 5) {
+                const flameSize = Math.min(game.dragon.velocity * 2, 30);
+                const gradient = ctx.createLinearGradient(0, 0, -flameSize, 0);
+                gradient.addColorStop(0, game.dragon.flameColor);
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.moveTo(-game.dragon.width/2, 0);
+                ctx.lineTo(-game.dragon.width/2 - flameSize, -flameSize/3);
+                ctx.lineTo(-game.dragon.width/2 - flameSize, flameSize/3);
+                ctx.closePath();
+                ctx.fill();
+            }
+            
+            // Eye
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(game.dragon.width * 0.3, -game.dragon.height * 0.2, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(game.dragon.width * 0.3 + 2, -game.dragon.height * 0.2, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Horns
+            ctx.fillStyle = '#ffcc00';
+            ctx.beginPath();
+            ctx.moveTo(game.dragon.width * 0.4, -game.dragon.height * 0.4);
+            ctx.lineTo(game.dragon.width * 0.5, -game.dragon.height * 0.7);
+            ctx.lineTo(game.dragon.width * 0.3, -game.dragon.height * 0.5);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        }
+        
+        function drawPipe(x, height, isTop) {
+            const pipeColor = game.pipes.find(p => p.x === x)?.color || '#57b52f';
+            const highlightColor = game.pipes.find(p => p.x === x)?.highlight || '#3e8f1d';
+            
+            // Pipe body
+            ctx.fillStyle = pipeColor;
+            if (isTop) {
+                ctx.fillRect(x, 0, game.pipeWidth, height);
+                
+                // Pipe rim
+                ctx.fillStyle = highlightColor;
+                ctx.fillRect(x - 5, height - 20, game.pipeWidth + 10, 20);
+                
+                // Pipe decoration
+                ctx.fillStyle = '#ffffff20';
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillRect(x + 10, height - 60 - (i * 40), game.pipeWidth - 20, 15);
+                }
+            } else {
+                ctx.fillRect(x, height, game.pipeWidth, canvas.height - height);
+                
+                // Pipe rim
+                ctx.fillStyle = highlightColor;
+                ctx.fillRect(x - 5, height, game.pipeWidth + 10, 20);
+                
+                // Pipe decoration
+                ctx.fillStyle = '#ffffff20';
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillRect(x + 10, height + 40 + (i * 40), game.pipeWidth - 20, 15);
+                }
+            }
+        }
+        
+        function drawBackground() {
+            // Night sky gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#0a0e17');
+            gradient.addColorStop(1, '#1a2a3a');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Stars
+            ctx.fillStyle = 'white';
+            game.background.stars.forEach(star => {
+                ctx.globalAlpha = star.brightness;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.globalAlpha = 1;
+            
+            // Moving clouds
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            game.background.clouds.forEach(cloud => {
+                ctx.beginPath();
+                ctx.ellipse(
+                    cloud.x - game.backgroundOffset * cloud.speed, 
+                    cloud.y, 
+                    cloud.width, 
+                    cloud.height, 
+                    0, 0, Math.PI * 2
+                );
+                ctx.fill();
+                
+                // Reset cloud position when off screen
+                if (cloud.x - game.backgroundOffset * cloud.speed < -cloud.width * 2) {
+                    cloud.x = canvas.width + cloud.width;
+                    cloud.y = Math.random() * canvas.height * 0.6;
+                }
+            });
+            
+            // Ground
+            ctx.fillStyle = '#2a1a0a';
+            ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+            
+            // Ground details
+            ctx.fillStyle = '#3a2a1a';
+            for (let i = 0; i < 15; i++) {
+                const x = (i * 40 - game.backgroundOffset * 0.5) % (canvas.width + 40) - 20;
+                ctx.beginPath();
+                ctx.arc(x, canvas.height - 50, 15, 0, Math.PI);
+                ctx.fill();
+            }
+        }
+        
+        function update() {
+            if (game.gameOver) return;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update background
+            game.backgroundOffset += game.scrollSpeed;
+            
+            // Draw background
+            drawBackground();
+            
+            // Update dragon
+            game.dragon.velocity += game.dragon.gravity;
+            game.dragon.y += game.dragon.velocity;
+            
+            // Gradually return wings to neutral position
+            if (Math.abs(game.dragon.wingAngle) > 0.5) {
+                game.dragon.wingAngle *= 0.9;
+            } else {
+                game.dragon.wingAngle = 0;
+            }
+            
+            // Draw dragon
+            drawDragon();
+            
+            // Create new pipes
+            if (game.frameCount % game.pipeFrequency === 0) {
+                createPipe();
+            }
+            
+            // Update and draw pipes
+            for (let i = 0; i < game.pipes.length; i++) {
+                let pipe = game.pipes[i];
+                pipe.x -= game.scrollSpeed;
+                
+                // Draw pipes
+                drawPipe(pipe.x, pipe.topHeight, true);
+                drawPipe(pipe.x, pipe.bottomY, false);
+                
+                // Check collision
+                if (
+                    (game.dragon.x + game.dragon.width/2 > pipe.x && 
+                     game.dragon.x - game.dragon.width/2 < pipe.x + game.pipeWidth) &&
+                    (game.dragon.y - game.dragon.height/2 < pipe.topHeight || 
+                     game.dragon.y + game.dragon.height/2 > pipe.bottomY)
+                ) {
+                    endGame();
+                }
+                
+                // Check if passed pipe
+                if (!pipe.passed && game.dragon.x > pipe.x + game.pipeWidth) {
+                    pipe.passed = true;
+                    game.score++;
+                    scoreDisplay.textContent = game.score;
+                    
+                    // Score animation
+                    scoreDisplay.style.transform = 'scale(1.2)';
+                    setTimeout(() => {
+                        scoreDisplay.style.transform = 'scale(1)';
+                    }, 200);
+                }
+                
+                // Remove off-screen pipes
+                if (pipe.x + game.pipeWidth < 0) {
+                    game.pipes.splice(i, 1);
+                    i--;
+                }
+            }
+            
+            // Check ground collision
+            if (game.dragon.y + game.dragon.height/2 > canvas.height - 50 || 
+                game.dragon.y - game.dragon.height/2 < 0) {
+                endGame();
+            }
+            
+            game.frameCount++;
+            requestAnimationFrame(update);
+        }
+        
+        function endGame() {
+            game.gameOver = true;
+            game.bestScore = Math.max(game.bestScore, game.score);
+            gameOverText.textContent = `Game Over | Best: ${game.bestScore}`;
+            gameOverScreen.style.display = 'flex';
+        }
+        
+        // Start game
+        resetGame();
+        update();
+    </script>
+</body>
+</html>
